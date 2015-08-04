@@ -1,7 +1,7 @@
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
 
-import org.apache.log4j.Logger;
 import org.jgroups.Address;
 import org.jgroups.Channel;
 import org.jgroups.JChannel;
@@ -26,7 +26,7 @@ import org.jgroups.protocols.pbcast.GMS;
 public final class HAControllerCoordinator {
 
     private static HAControllerCoordinator me = new HAControllerCoordinator();
-    private Logger log = Logger.getLogger("groups");
+    private java.util.logging.Logger log = java.util.logging.Logger.getLogger("groups");
 
     public static void main(String[] args) throws Exception {
                 
@@ -127,7 +127,7 @@ public final class HAControllerCoordinator {
                 }
 
                 public void receive(Message msg) {
-                    log.debug("received msg from " + msg.getSrc() + ": " + new String(msg.getBuffer()));
+                    log.log(Level.INFO,"received msg from " + msg.getSrc() + ": " + new String(msg.getBuffer()));
                 }
             });
             String clusterName = getClusterName();
@@ -137,7 +137,7 @@ public final class HAControllerCoordinator {
             // we will never be the coordinator.
             // The problem must be fixed
             // and the application must be restarted.
-            log.error("", e);
+            log.log(Level.SEVERE,"", e);
         }
         return channelToReturn;
     }
