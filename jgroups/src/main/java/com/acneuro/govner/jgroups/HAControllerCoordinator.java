@@ -1,11 +1,15 @@
-import java.net.InetAddress;
+package com.acneuro.govner.jgroups;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
 
-import org.jgroups.*;
-import org.jgroups.stack.IpAddress;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.jgroups.Address;
+import org.jgroups.Channel;
+import org.jgroups.JChannel;
+import org.jgroups.Message;
+import org.jgroups.ReceiverAdapter;
+import org.jgroups.View;
+import org.jgroups.protocols.pbcast.GMS;
 
 /**
  * HA controller, using JGroups, detects if we are the coordinator in the cluster.
@@ -20,47 +24,64 @@ import org.slf4j.LoggerFactory;
  * </p>
  *
  */
-public final class HAController {
+public final class HAControllerCoordinator {
 
-    private static HAController me = new HAController();
-    private Logger log = LoggerFactory.getLogger("groups");
+    private static HAControllerCoordinator me = new HAControllerCoordinator();
+    private java.util.logging.Logger log = java.util.logging.Logger.getLogger("groups");
 
     public static void main(String[] args) throws Exception {
                 
         Thread.sleep(60000);
     }
     
-    public static HAController getInstance() {
+    public static HAControllerCoordinator getInstance() {
         return me;
     }
 
-    private HAController() {
+    private HAControllerCoordinator() {
         String config = System.getProperty("jgroups.config.xml");
         if (config == null || config.isEmpty()) {
             // we will always be the coordinator, i.e., not using clustering for H/A.
             setCoordinator(true);
         } else {
             JChannel channel = connectToChannel(config);
-           // if(coordinator){            	
+            if(!coordinator){            	
             	try {
-            		while(true){            			
-            			if(channel.getView().getMembers().size() > 1){            				
-            				List<Address> dsts = channel.getView().getMembers();
-            				for (Address dst : dsts) {
-            					if(!channel.getAddress().equals(dst))
-            					channel.send(dst , ("GiveMeYourHostnameAndPort").getBytes());
-							}
-            			}
-            			Thread.sleep(5000);
-            		}
+            		Address src = channel.getAddress();
+            		Address dst = channel.getView().getViewId().getCreator();
+            		channel.send(dst , ("Whatsup from "+channel.getAddress()).getBytes());
             	} catch (Exception e) {
             		// TODO Auto-generated catch block
             		e.printStackTrace();
             	}
-        //    }
+            }
+            changeView(channel);
         }
     }
 
+    
+    protected void changeView(Channel ch) {
+        View view=ch.getView();
+        Address local_addr=ch.getAddress();
+        Address coord=view.getMembersRaw()[0];
+//        if(!local_addr.equals(coord)) {
+//            System.err.println("View can only be changed on coordinator");
+//            return;
+//        }
+        if(view.size() == 1) {
+            System.err.println("Coordinator cannot change as view only has a single member");
+            return;
+        }
+        List<Address> mbrs=new ArrayList<Address>(view.getMembers());
+        long new_id=view.getViewId().getId() + 1;
+        
+        Address tmp_coord=mbrs.remove(0);
+        mbrs.add(tmp_coord);
+        View new_view=new View(ch.getAddress(), new_id, mbrs);
+        GMS gms=(GMS)ch.getProtocolStack().findProtocol(GMS.class);
+        gms.castViewChange(new_view, null, mbrs);
+    }
+    
     private boolean coordinator = false;
 
     private synchronized void setCoordinator(boolean coordinator) {
@@ -88,7 +109,7 @@ public final class HAController {
             final JChannel channel = new JChannel(config);
             channel.setReceiver(new ReceiverAdapter() {
                 Address currentCoordinator = null;
-                List<Address> addresses = new ArrayList<Address>();
+
                 private boolean coordinating(View view) {
                 	return (channel.getAddress().equals(view.getViewId().getCreator()));
                 }
@@ -96,45 +117,18 @@ public final class HAController {
                 public void viewAccepted(View view) {
                     if (coordinating(view)) {
                         if (currentCoordinator == null ||
-                                !currentCoordinator.equals(view.getMembers().get(0))) {
-                            currentCoordinator = view.getMembers().get(0);
+                                !currentCoordinator.equals(view.getViewId().getCreator())) {
+                            currentCoordinator = view.getViewId().getCreator();
                             log.info("I am the NEW coordinator: " + channel.getAddress());
                             setCoordinator(true);
                         }
                     }else{
                         log.info("Not the coordinator : "+ channel.getAddress());
                     }
-                    List<Address> currentMembers =  new ArrayList<Address>(view.getMembers());
-                    List<Address> previousMembers =  new ArrayList<Address>(addresses);
-
-                    previousMembers.removeAll(currentMembers);
-                    for (Address droppedNode : previousMembers) {
-                    	PhysicalAddress physicalAddr = (PhysicalAddress)channel.down(new Event(Event.GET_PHYSICAL_ADDRESS, droppedNode));
-                    	if(physicalAddr instanceof IpAddress) {
-                    		IpAddress ipAddr = (IpAddress)physicalAddr;
-                    		String srcIp = ipAddr.getIpAddress().getHostAddress();
-                    		log.info("Node has dropped ip:"+ srcIp);
-                    	}
-
-                    }
-                    
-                    currentMembers.removeAll(addresses);
-                    for (Address newlyJoinedNode : currentMembers) {
-                    	PhysicalAddress physicalAddr = (PhysicalAddress)channel.down(new Event(Event.GET_PHYSICAL_ADDRESS, newlyJoinedNode));
-                    	if(physicalAddr instanceof IpAddress) {
-                    		IpAddress ipAddr = (IpAddress)physicalAddr;
-                    		String srcIp = ipAddr.getIpAddress().getHostAddress();
-                    		log.info("Node has just joined ip:"+ srcIp);
-                    	}
-                    }
-                    addresses = new ArrayList<Address>(view.getMembers());
-                    
                 }
 
-                
-                
                 public void receive(Message msg) {
-                    log.info("received msg from " + msg.getSrc() + ": " + new String(msg.getBuffer()));					
+                    log.log(Level.INFO,"received msg from " + msg.getSrc() + ": " + new String(msg.getBuffer()));
                 }
             });
             String clusterName = getClusterName();
@@ -144,7 +138,7 @@ public final class HAController {
             // we will never be the coordinator.
             // The problem must be fixed
             // and the application must be restarted.
-            log.error("", e);
+            log.log(Level.SEVERE,"", e);
         }
         return channelToReturn;
     }
