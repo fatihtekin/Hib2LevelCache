@@ -11,7 +11,7 @@ public class HATester extends Observer{
 		HATester haTester = new HATester();
 		controller.attach(haTester);
 		
-		Thread.sleep(60000);
+		Thread.sleep(1000);
 		
 		
 	}

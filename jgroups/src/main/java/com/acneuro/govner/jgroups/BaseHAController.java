@@ -4,13 +4,18 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 
+import org.apache.commons.lang3.StringUtils;
 import org.jgroups.Channel;
 import org.jgroups.JChannel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class BaseHAController {
 
     private boolean coordinator = false;
 	
+    private Logger log = LoggerFactory.getLogger(this.getClass());
+    
     /**
      * @return TRUE if we are the coordinator.
      */
@@ -24,7 +29,11 @@ public abstract class BaseHAController {
     }
 
     public String getClusterName() {
-        return "jgroups-" + Long.parseLong(System.getProperty("cluster_id"));
+    	
+    	if(StringUtils.isBlank(System.getProperty("cluster_id"))){
+    		return "jgroups-govner"; 
+    	}
+        return "jgroups-" + System.getProperty("cluster_id");
     }
     
     protected abstract JChannel connectToChannel(InputStream config,String configName);
@@ -32,18 +41,20 @@ public abstract class BaseHAController {
 	protected Channel init(){
         String config = System.getProperty("jgroups.config.xml");
         if (config == null || config.isEmpty()) {
-        	return null;
-        } else {
-        	try {				
-        		File configDir = new File(System.getProperty("catalina.base"), "shared");
-        		File configFile = new File(configDir, config);
-        		InputStream stream = new FileInputStream(configFile);
-				return connectToChannel(stream,null);        		
-        	} catch (Exception e) {
-				return connectToChannel(null,config);
-			}
-
+        	config = "udp.xml";
+        } 
+              
+        try {				
+        	File configDir = new File(System.getProperty("catalina.base"), "shared");
+        	File configFile = new File(configDir, config);
+        	InputStream stream = new FileInputStream(configFile);
+        	return connectToChannel(stream,null);        		
+        } catch (Exception e) {
+        	log.info("No file under tomcat /shared directory it will try to read from classpath");
+        	return connectToChannel(null,config);
         }
+
+
 
 	}
 	
